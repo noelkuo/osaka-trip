@@ -1330,7 +1330,7 @@
   const endpoint='https://script.google.com/macros/s/AKfycbxEoNmYN5rCBArJq9-DCYIvCfJnPFD-UNYzvRigD2aB-y3E2_RfoOqCuhgnDMHEPExc8Q/exec';
   const names={me:'圓圓',companion:'鯊鯊'};
   const normalize=value=>String(value??'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
-  const category=value=>({'Donki':'大創/Donki','大創':'大創/Donki','藥妝店':'藥妝/Donki'}[String(value).trim()]||String(value||'其他').trim());
+  const category=value=>String(value||'其他').trim();
   async function request(payload){
     const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),45000);
     let response;
@@ -1388,12 +1388,12 @@
 (() => {
   'use strict';
   const key='osaka-2026-shopping-v1';
-  const baseCategories=['3Coins','大創/Donki','U/W','藥妝/Donki','伴手禮','其他'];
+  const baseCategories=['3Coins','Donki','U/W','藥妝店','其他'];
   const seeds=[
     ['3Coins','收納旅行袋'],['3Coins','行李綁帶'],['3Coins','飲料袋'],['3Coins','微波盒'],['3Coins','洗米'],['3Coins','風扇機'],['3Coins','屁孩禮物'],
-    ['大創/Donki','猩猩之握'],['大創/Donki','衣服去漬液（獅王）'],['大創/Donki','BIOAESTECH DUAL ORB DEEP LIFT',null,'美容儀'],['大創/Donki','擦拭眼鏡布'],['大創/Donki','烘鞋機'],
+    ['Donki','猩猩之握'],['Donki','衣服去漬液（獅王）'],['Donki','BIOAESTECH DUAL ORB DEEP LIFT',null,'美容儀'],['Donki','擦拭眼鏡布'],['Donki','烘鞋機'],
     ['U/W','短袖',6],['U/W','長袖',6],['U/W','內褲',6],['U/W','外套'],['U/W','小朋友衣服（120 公分）',null,'尺寸：120 公分'],['U/W','小朋友衣服（110 公分）',null,'尺寸：110 公分'],
-    ['藥妝/Donki','Eve 止痛藥（Quick）',null,'代買對象：弟媳'],['藥妝/Donki','感冒藥'],['藥妝/Donki','痠痛貼布'],['藥妝/Donki','胃藥'],['藥妝/Donki','DHC速攻藍莓'],['藥妝/Donki','ノイロダンA 290錠',null,'原清單備註：緩解關節痛'],
+    ['藥妝店','Eve 止痛藥（Quick）',null,'代買對象：弟媳'],['藥妝店','感冒藥'],['藥妝店','痠痛貼布'],['藥妝店','胃藥'],['藥妝店','DHC速攻藍莓'],['藥妝店','ノイロダンA 290錠',null,'原清單備註：緩解關節痛'],
     ['其他','shupatto 購物袋']
   ];
   const byId=id=>document.getElementById(id);
@@ -1418,6 +1418,7 @@
   const cloudKey='osaka-2026-shopping-cloud-v1';
   data={version:1,people:{...api.names},items:legacyData.items,trash:[]};
   try{const cached=JSON.parse(localStorage.getItem(cloudKey)||'null');if(validData(cached))data={...cached,people:{...api.names},trash:Array.isArray(cached.trash)?cached.trash.filter(validItem):[]};}catch(_){}
+  data.items=data.items.map(item=>({...item,category:({'大創/Donki':'Donki','藥妝/Donki':'藥妝店'}[item.category]||item.category)}));
   let connected=false,busy=false,lastRead=0;
   function save(){try{localStorage.setItem(cloudKey,JSON.stringify(data));return true;}catch(_){byId('shopping-storage').textContent='共用清單已連接；此瀏覽器無法保留離線備份。';return false;}}
   function updateWriteControls(){root.querySelectorAll('.cloud-write').forEach(control=>{control.disabled=busy||!connected;});form.querySelectorAll('input,select,textarea').forEach(control=>{control.disabled=busy;});refreshButton.disabled=busy;}
@@ -1463,15 +1464,17 @@
   const formGrid=make('div','shopping-form-grid');
   const nameInput=make('input');nameInput.id='shopping-name';nameInput.type='text';nameInput.maxLength=160;nameInput.required=true;nameInput.placeholder='輸入想買的東西';
   const ownerInput=make('select');ownerInput.id='shopping-owner';
-  const categoryInput=make('input');categoryInput.id='shopping-category';categoryInput.type='text';categoryInput.maxLength=80;categoryInput.required=true;categoryInput.setAttribute('list','shopping-category-options');categoryInput.placeholder='選擇分類或輸入新分類';
-  const categoryOptions=make('datalist');categoryOptions.id='shopping-category-options';
+  const categoryInput=make('select');categoryInput.id='shopping-category';categoryInput.required=true;
+  const categoryNew=make('input');categoryNew.id='shopping-new-category';categoryNew.type='text';categoryNew.maxLength=80;categoryNew.placeholder='例如：Loft';categoryNew.setAttribute('aria-label','新商店／分類名稱');
+  const categoryNewField=field('新商店／分類名稱',categoryNew);categoryNewField.hidden=true;
+  categoryInput.addEventListener('change',()=>{categoryNewField.hidden=categoryInput.value!=='__new_store__';categoryNew.required=!categoryNewField.hidden;if(!categoryNewField.hidden)categoryNew.focus();});
   const quantityInput=make('input');quantityInput.id='shopping-quantity';quantityInput.type='number';quantityInput.min='1';quantityInput.max='9999';quantityInput.step='1';quantityInput.placeholder='未決定可留空';quantityInput.inputMode='numeric';
   const noteInput=make('textarea');noteInput.id='shopping-note';noteInput.rows=3;noteInput.maxLength=1000;noteInput.placeholder='尺寸、顏色、品牌、代買對象…';
-  formGrid.append(field('品項名稱（必填）',nameInput,true),field('誰要買',ownerInput),field('商店／分類（可自訂）',categoryInput),field('數量（選填）',quantityInput),field('備註（選填）',noteInput,true));
+  formGrid.append(field('品項名稱（必填）',nameInput,true),field('誰要買',ownerInput),field('商店／分類',categoryInput),categoryNewField,field('數量（選填）',quantityInput),field('備註（選填）',noteInput,true));
   const formActions=make('div','shopping-actions');const submit=make('button','action map','加入清單');submit.type='submit';submit.id='shopping-submit';submit.classList.toggle('cloud-write',true);
   const cancel=button('取消',()=>{if(busy)return;editor.hidden=true;editing=null;add.focus();});
   formActions.append(submit,cancel);const formError=make('p','shopping-feedback error');formError.id='shopping-form-error';formError.setAttribute('role','alert');
-  form.append(formGrid,categoryOptions,formActions,formError);editor.append(editorTitle,form);
+  form.append(formGrid,formActions,formError);editor.append(editorTitle,form);
   const groups=make('div','shopping-groups');groups.id='shopping-groups';
   const settings=make('details','shopping-settings');settings.id='shopping-settings';settings.append(make('summary','', '清單備份與匯入'));
   settings.append(make('p','shopping-help','共用清單的採購人固定為圓圓與鯊鯊；兩支手機都會讀取同一份資料。'));
@@ -1487,13 +1490,13 @@
   root.append(toolbar,syncStatus,people,filters,feedback,undo,editor,groups,settings);
   let editing=null,editingBase=null;
   function categories(){return [...new Set([...baseCategories,...data.items.map(item=>item.category)])];}
-  function refreshCategories(){const selected=categoryFilter.value||'all';const cats=categories();categoryFilter.replaceChildren(option('all','全部分類'),...cats.map(c=>option(c,c)));categoryFilter.value=selected==='all'||cats.includes(selected)?selected:'all';categoryOptions.replaceChildren(...cats.map(c=>option(c,c)));}
+  function refreshCategories(){const selected=categoryFilter.value||'all';const cats=categories();categoryFilter.replaceChildren(option('all','全部分類'),...cats.map(c=>option(c,c)));categoryFilter.value=selected==='all'||cats.includes(selected)?selected:'all';const current=categoryInput.value;categoryInput.replaceChildren(...cats.map(c=>option(c,c)),option('__new_store__','＋ 新增商店／分類'));categoryInput.value=cats.includes(current)||current==='__new_store__'?current:cats[0];}
   function refreshPeople(){const current=ownerInput.value||'me';ownerInput.replaceChildren(option('me',data.people.me),option('companion',data.people.companion));ownerInput.value=current;}
-  function openEditor(item){if(busy||!connected)return;editingBase=item?{...item}:null;editing=item?item.id:null;formError.textContent='';editor.hidden=false;editorTitle.textContent=item?'編輯採購品項':'新增採購品項';submit.textContent=item?'儲存修改':'加入清單';nameInput.value=item?item.name:'';ownerInput.value=item?item.owner:ownerFilter==='companion'?'companion':'me';categoryInput.value=item?item.category:categoryFilter.value!=='all'?categoryFilter.value:'3Coins';quantityInput.value=item&&item.quantity!==null?String(item.quantity):'';noteInput.value=item?item.note:'';editor.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});nameInput.focus({preventScroll:true});}
+  function openEditor(item){if(busy||!connected)return;editingBase=item?{...item}:null;editing=item?item.id:null;formError.textContent='';editor.hidden=false;editorTitle.textContent=item?'編輯採購品項':'新增採購品項';submit.textContent=item?'儲存修改':'加入清單';nameInput.value=item?item.name:'';ownerInput.value=item?item.owner:ownerFilter==='companion'?'companion':'me';categoryInput.value=item?item.category:categoryFilter.value!=='all'?categoryFilter.value:'3Coins';categoryNew.value='';categoryNewField.hidden=true;categoryNew.required=false;quantityInput.value=item&&item.quantity!==null?String(item.quantity):'';noteInput.value=item?item.note:'';editor.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});nameInput.focus({preventScroll:true});}
   form.addEventListener('submit',async event=>{
-    event.preventDefault();const name=nameInput.value.trim(),category=categoryInput.value.trim(),raw=quantityInput.value.trim(),quantity=raw===''?null:Number(raw);
+    event.preventDefault();const name=nameInput.value.trim(),category=(categoryInput.value==='__new_store__'?categoryNew.value:categoryInput.value).trim(),raw=quantityInput.value.trim(),quantity=raw===''?null:Number(raw);
     if(!name||name.length>160){formError.textContent='請填寫品項名稱（160 字以內）。';nameInput.focus();return;}
-    if(!category||category.length>80){formError.textContent='請填寫商店或分類（80 字以內）。';categoryInput.focus();return;}
+    if(!category||category.length>80){formError.textContent='請填寫商店或分類（80 字以內）。';(categoryInput.value==='__new_store__'?categoryNew:categoryInput).focus();return;}
     if(!['me','companion'].includes(ownerInput.value)){formError.textContent='請選擇採購人。';return;}
     if(quantity!==null&&(!Number.isInteger(quantity)||quantity<1||quantity>9999)){formError.textContent='數量請填 1–9999 的整數，或留空表示待定。';quantityInput.focus();return;}
     const previous=editingBase;
@@ -1592,8 +1595,8 @@
   // Relevant shopping categories reflect the itinerary notes, not stock availability.
   const mapping={
     'event-39':['U/W'],'event-40':['3Coins','U/W'],'event-50':['伴手禮'],
-    'event-55':['3Coins','大創/Donki','U/W','藥妝/Donki'],
-    'event-69':['藥妝/Donki','3Coins'],'event-75':['U/W','藥妝/Donki'],'event-84':['U/W']
+    'event-55':['3Coins','Donki','U/W','藥妝店'],
+    'event-69':['藥妝店','3Coins'],'event-75':['U/W','藥妝店'],'event-84':['U/W']
   };
   [...document.querySelectorAll('.event')].forEach(event=>{
     if(!event.querySelector('.category.shopping'))return;

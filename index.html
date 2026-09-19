@@ -423,6 +423,8 @@
   @media print { .bottom-nav,.day-view-controls,.shop-from-event { display:none!important; } main,footer { padding-bottom:0; } }
 
 .shopping-sync { font-size:1.125rem; line-height:1.8; padding:12px 15px; background:#eaf3ed; color:#315b4c; border-radius:10px; margin:0 0 17px; } .cloud-write:disabled { opacity:.55; cursor:wait; }
+.shopping-delete-confirm { margin-top:12px; padding:16px; border:1px solid #d8a29b; border-radius:12px; background:#fff4f1; font-size:18px; line-height:1.7; } .shopping-delete-confirm p { margin:0 0 12px; } .shopping-delete-confirm button { margin:0 10px 4px 0; min-height:48px; }
+#shopping-storage:empty { display:none; }
 </style>
 </head>
 <body>
@@ -983,7 +985,7 @@
             <details class="event-more"><summary>展開詳細說明</summary><dl class="details"><div class="detail"><dt>區域</dt><dd>桃園</dd></div></dl></details><div class="actions"><a class="action map" href="https://www.google.com/maps/search/?api=1&amp;query=%E6%A1%83%E5%9C%92%E6%A9%9F%E5%A0%B4%20%E7%AC%AC%E4%BA%8C%E8%88%AA%E5%BB%88" target="_blank" rel="noopener noreferrer" data-map-kind="search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-5.4 7-12a7 7 0 1 0-14 0c0 6.6 7 12 7 12Z"/><circle cx="12" cy="9" r="2.5"/></svg>搜尋地點</a></div>
           </div>
         </article></div>
-    </section></section><details id="shopping-panel" class="travel-panel"><summary class="panel-summary">兩人的購物清單 <span id="shopping-count" class="ticket-badge">整理採購</span><small>按人、按商店查看，買到了就打勾；隨時可以新增</small></summary><div class="panel-body"><p class="shopping-help" id="shopping-storage">先顯示本機清單，勾選與修改立即儲存在這支手機，再背景同步給圓圓與鯊鯊。待同步的變更會保留；離開網頁前，請確認顯示「已同步」。</p><div id="shopping-root"></div></div></details><details id="ticket-wallet" class="travel-panel"><summary class="panel-summary">旅途票券 <span id="wallet-count" class="ticket-badge">確認票券</span><small>車票、入場券與快通，一次確認準備好了沒</small></summary><div class="panel-body"><p class="ticket-intro">已購狀態依原行程預填；請逐項核對日期、人數與憑證。可貼上票券連結或記錄所在 App／訂單位置，再按「儲存」。這裡整理你的憑證，不會產生門票或 QR code。</p><p class="ticket-note" id="wallet-storage">票券只儲存在這個瀏覽器，不會同步到家人的手機。請另保留原始憑證。</p><div class="ticket-grid" id="ticket-grid"></div></div></details></main>
+    </section></section><details id="shopping-panel" class="travel-panel"><summary class="panel-summary">兩人的購物清單 <span id="shopping-count" class="ticket-badge">整理採購</span></summary><div class="panel-body"><p class="shopping-help" id="shopping-storage"></p><div id="shopping-root"></div></div></details><details id="ticket-wallet" class="travel-panel"><summary class="panel-summary">旅途票券 <span id="wallet-count" class="ticket-badge">確認票券</span><small>車票、入場券與快通，一次確認準備好了沒</small></summary><div class="panel-body"><p class="ticket-intro">已購狀態依原行程預填；請逐項核對日期、人數與憑證。可貼上票券連結或記錄所在 App／訂單位置，再按「儲存」。這裡整理你的憑證，不會產生門票或 QR code。</p><p class="ticket-note" id="wallet-storage">票券只儲存在這個瀏覽器，不會同步到家人的手機。請另保留原始憑證。</p><div class="ticket-grid" id="ticket-grid"></div></div></details></main>
 <footer><div class="wrap">行程以原表為基礎，另含手動更新；票券與完成進度儲存於目前瀏覽器。</div></footer>
 <script>
 (() => {
@@ -1419,6 +1421,7 @@
   let hasCache=false,storageOK=true,busy=false,lastRead=0,syncError='';
   data={version:1,people:{...api.names},items:[],trash:[],server:[],pending:[],aliases:{}};
   try{const cached=JSON.parse(localStorage.getItem(cloudKey)||'null');if(validData(cached)){data={...data,...cached,people:{...api.names}};data.server=Array.isArray(cached.server)?cached.server:cached.items;data.pending=Array.isArray(cached.pending)?cached.pending:[];data.aliases=cached.aliases||{};hasCache=true;data.pending.forEach(op=>{if(op.state==='sending')op.state=op.type==='add'?'uncertain':'queued';});}}catch(_){storageOK=false;}
+  data.trash=[];
   const resolveId=id=>data.aliases[id]||id;
   function project(){
     const items=data.server.map(item=>({...item}));
@@ -1436,18 +1439,17 @@
     recovery.hidden=!data.pending.length||!['uncertain','conflict'].includes(data.pending[0].state);
   }
   function repaint(){project();refreshCategories();render();status();}
-  function enqueue(type,item,changes={},trashAction){
+  function enqueue(type,item,changes={}){
     if(!hasCache||!storageOK){announce('請先完成首次載入，並確認本機可以儲存。',false);return false;}
     const before=JSON.stringify(data);
     data.pending.push({type,item:{...item,id:resolveId(item.id)},changes:{...changes},state:'queued'});
-    if(trashAction)trashAction();project();
+    project();
     if(!save()){data=JSON.parse(before);repaint();announce(syncError,false);return false;}
     syncError='';repaint();announce('已存到本機，將在背景同步。');void refreshCloud(false);return true;
   }
   function mapCreated(op,created){
     const old=op.item.id;data.aliases[old]=created.id;
     data.pending.forEach(next=>{if(next.item.id===old)next.item.id=created.id;});
-    data.trash.forEach(item=>{if(item.id===old)item.id=created.id;});
     if(editingBase&&editingBase.id===old){editingBase.id=created.id;editing=created.id;}
     data.server=data.server.filter(item=>item.id!==created.id);data.server.push(created);
   }
@@ -1497,7 +1499,7 @@
   const people=make('div','shopping-people');people.setAttribute('role','group');people.setAttribute('aria-label','選擇採購人');
   let ownerFilter='all';
   const peopleButtons={};
-  ['all','me','companion'].forEach(id=>{const e=button('',()=>{ownerFilter=id;render();});e.id='shopping-person-'+id;peopleButtons[id]=e;people.append(e);});
+  ['me','companion','all'].forEach(id=>{const e=button('',()=>{ownerFilter=id;render();});e.id='shopping-person-'+id;peopleButtons[id]=e;people.append(e);});
   const filters=make('div','shopping-filters');
   const categoryFilter=make('select');categoryFilter.id='shopping-category-filter';
   const statusFilter=make('select');statusFilter.id='shopping-status-filter';statusFilter.append(option('all','全部狀態'),option('todo','只看待買'),option('bought','只看已買'));statusFilter.value='all';
@@ -1507,7 +1509,7 @@
   [categoryFilter,statusFilter].forEach(e=>e.addEventListener('change',render));search.addEventListener('input',render);
   const feedback=make('p','shopping-feedback');feedback.id='shopping-feedback';feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');
   function announce(text,persisted=true){feedback.textContent=text+(persisted?'':'（尚未確認同步）');feedback.classList.toggle('error',!persisted);}
-  const undo=button('復原上次移除',()=>{const item=data.trash[data.trash.length-1];if(!item)return;enqueue('add',{...item,id:'local-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)},{},()=>data.trash.pop());});undo.id='shopping-undo';undo.classList.toggle('shopping-undo',true);undo.classList.toggle('cloud-write',true);undo.hidden=true;
+  let pendingRemove=null;
   const editor=make('section','shopping-editor');editor.id='shopping-editor';editor.hidden=true;
   const editorTitle=make('h3','', '新增採購品項');editorTitle.id='shopping-editor-title';editor.setAttribute('aria-labelledby',editorTitle.id);
   const form=make('form');form.id='shopping-form';form.noValidate=true;
@@ -1543,7 +1545,7 @@
   const retryRecovery=button('確認未新增，重新送出',()=>{if(busy||!data.pending[0])return;data.pending[0].state='queued';save();void refreshCloud(false);});
   const discardRecovery=button('採用雲端版本',()=>{if(busy||!data.pending[0])return;const id=data.pending[0].item.id;data.pending=data.pending.filter(op=>op.item.id!==id);save();syncError='';repaint();void refreshCloud(false);});
   recovery.append(recoveryText,recoveryChoices,linkRecovery,retryRecovery,discardRecovery);
-  root.append(toolbar,syncStatus,recovery,people,filters,feedback,undo,editor,groups,settings);
+  root.append(toolbar,syncStatus,recovery,people,filters,feedback,editor,groups,settings);
   let editing=null,editingBase=null;
   function categories(){return [...new Set([...baseCategories,...data.items.map(item=>item.category)])];}
   function refreshCategories(){const selected=categoryFilter.value||'all';const cats=categories();categoryFilter.replaceChildren(option('all','全部分類'),...cats.map(c=>option(c,c)));categoryFilter.value=selected==='all'||cats.includes(selected)?selected:'all';const current=categoryInput.value;categoryInput.replaceChildren(...cats.map(c=>option(c,c)),option('__new_store__','＋ 新增商店／分類'));categoryInput.value=cats.includes(current)||current==='__new_store__'?current:cats[0];}
@@ -1580,12 +1582,19 @@
     }catch(error){feedback.classList.toggle('error',true);feedback.textContent='未匯入：'+error.message;}
     importInput.value='';
   });
-  function removeItem(item){const ok=enqueue('delete',item,{},()=>{data.trash.push(item);if(data.trash.length>50)data.trash.shift();});if(ok){if(editing===item.id){editor.hidden=true;editing=null;}undo.focus();}}
+  function removeItem(item){pendingRemove=item.id;render();const no=byId('shopping-delete-no-'+item.id);if(no)no.focus();}
+  function confirmRemove(item){
+    if(!enqueue('delete',item))return;
+    pendingRemove=null;
+    if(editing===item.id){editor.hidden=true;editing=null;}
+    announce('已移除「'+item.name+'」，正在背景同步刪除。');add.focus();
+  }
+
   function render(){
     const total=data.items.length,bought=data.items.filter(item=>item.bought).length;
     stats.textContent='待買 '+(total-bought)+' · 已買 '+bought+' · 共 '+total+' 項';byId('shopping-count').textContent=bought+' / '+total+' 項已買';byId('shopping-button').textContent='購物';
-    ['all','me','companion'].forEach(id=>{const items=id==='all'?data.items:data.items.filter(item=>item.owner===id);peopleButtons[id].textContent=(id==='all'?'兩人合看':data.people[id])+' · '+items.length;peopleButtons[id].setAttribute('aria-pressed',String(ownerFilter===id));});
-    undo.hidden=data.trash.length===0;undo.textContent='復原上次移除'+(data.trash.length?'（'+data.trash.length+'）':'');
+    ['me','companion','all'].forEach(id=>{const items=id==='all'?data.items:data.items.filter(item=>item.owner===id);peopleButtons[id].textContent=(id==='all'?'兩人合看':data.people[id])+' · '+items.length;peopleButtons[id].setAttribute('aria-pressed',String(ownerFilter===id));});
+
     const query=search.value.trim().toLocaleLowerCase();
     const visible=data.items.filter(item=>(ownerFilter==='all'||item.owner===ownerFilter)&&(categoryFilter.value==='all'||item.category===categoryFilter.value)&&(statusFilter.value==='all'||(statusFilter.value==='bought')===item.bought)&&[item.name,item.note,item.category,data.people[item.owner]].join(' ').toLocaleLowerCase().includes(query));
     groups.replaceChildren();
@@ -1603,7 +1612,17 @@
         check.addEventListener('change',()=>{enqueue('patch',item,{bought:check.checked});const target=byId(check.id);if(target)target.focus({preventScroll:true});});
         label.append(check,make('span','shopping-name',item.name));const meta=make('div','shopping-meta');meta.append(make('span','',data.people[item.owner]),make('span','',item.quantity===null?'數量待定':'數量：'+item.quantity),make('span','',item.bought?'✓ 已買':'待買'));
         if(data.pending.some(op=>resolveId(op.item.id)===item.id))meta.append(make('span','','待同步'));row.append(label,meta);if(item.note)row.append(make('p','shopping-note',item.note));
-        const actions=make('div','shopping-actions');const edit=button('編輯',()=>openEditor(item));edit.setAttribute('aria-label','編輯 '+item.name);edit.classList.toggle('cloud-write',true);const remove=button('移除',()=>removeItem(item),'action remove');remove.setAttribute('aria-label','移除 '+item.name);remove.classList.toggle('cloud-write',true);actions.append(edit,remove);row.append(actions);list.append(row);
+        const actions=make('div','shopping-actions');const edit=button('編輯',()=>openEditor(item));edit.setAttribute('aria-label','編輯 '+item.name);edit.classList.toggle('cloud-write',true);const remove=button('移除',()=>removeItem(item),'action remove');remove.setAttribute('aria-label','移除 '+item.name);remove.classList.toggle('cloud-write',true);actions.append(edit,remove);row.append(actions);
+        if(pendingRemove===item.id){
+          const confirmation=make('div','shopping-delete-confirm');confirmation.setAttribute('role','group');
+          const question=make('p','','是否要移除「'+item.name+'」？');question.id='shopping-delete-question-'+item.id;
+          confirmation.setAttribute('aria-labelledby',question.id);
+          const yes=button('是，移除',()=>confirmRemove(item),'action remove');yes.id='shopping-delete-yes-'+item.id;yes.classList.toggle('cloud-write',true);
+          const no=button('否，保留',()=>{pendingRemove=null;render();const current=byId('shopping-row-'+item.id);if(current)current.querySelector('.remove').focus();});no.id='shopping-delete-no-'+item.id;
+          confirmation.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();no.click();}});
+          confirmation.append(question,yes,no);row.append(confirmation);
+        }
+        list.append(row);
       });section.append(list);groups.append(section);
     });
     updateWriteControls();

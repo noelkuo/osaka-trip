@@ -422,6 +422,7 @@
   }
   @media print { .bottom-nav,.day-view-controls,.shop-from-event { display:none!important; } main,footer { padding-bottom:0; } }
 
+.shopping-sync { font-size:1.125rem; line-height:1.8; padding:12px 15px; background:#eaf3ed; color:#315b4c; border-radius:10px; margin:0 0 17px; } .cloud-write:disabled { opacity:.55; cursor:wait; }
 </style>
 </head>
 <body>
@@ -982,7 +983,7 @@
             <details class="event-more"><summary>展開詳細說明</summary><dl class="details"><div class="detail"><dt>區域</dt><dd>桃園</dd></div></dl></details><div class="actions"><a class="action map" href="https://www.google.com/maps/search/?api=1&amp;query=%E6%A1%83%E5%9C%92%E6%A9%9F%E5%A0%B4%20%E7%AC%AC%E4%BA%8C%E8%88%AA%E5%BB%88" target="_blank" rel="noopener noreferrer" data-map-kind="search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-5.4 7-12a7 7 0 1 0-14 0c0 6.6 7 12 7 12Z"/><circle cx="12" cy="9" r="2.5"/></svg>搜尋地點</a></div>
           </div>
         </article></div>
-    </section></section><details id="shopping-panel" class="travel-panel"><summary class="panel-summary">兩人的購物清單 <span id="shopping-count" class="ticket-badge">整理採購</span><small>按人、按商店查看，買到了就打勾；隨時可以新增</small></summary><div class="panel-body"><p class="shopping-help" id="shopping-storage">圓圓與鯊鯊的清單都在這裡，可分開查看或兩人合看。修改會儲存在目前手機；要分享更新內容，可匯出清單。</p><div id="shopping-root"></div></div></details><details id="ticket-wallet" class="travel-panel"><summary class="panel-summary">旅途票券 <span id="wallet-count" class="ticket-badge">確認票券</span><small>車票、入場券與快通，一次確認準備好了沒</small></summary><div class="panel-body"><p class="ticket-intro">已購狀態依原行程預填；請逐項核對日期、人數與憑證。可貼上票券連結或記錄所在 App／訂單位置，再按「儲存」。這裡整理你的憑證，不會產生門票或 QR code。</p><p class="ticket-note" id="wallet-storage">票券只儲存在這個瀏覽器，不會同步到家人的手機。請另保留原始憑證。</p><div class="ticket-grid" id="ticket-grid"></div></div></details></main>
+    </section></section><details id="shopping-panel" class="travel-panel"><summary class="panel-summary">兩人的購物清單 <span id="shopping-count" class="ticket-badge">整理採購</span><small>按人、按商店查看，買到了就打勾；隨時可以新增</small></summary><div class="panel-body"><p class="shopping-help" id="shopping-storage">圓圓與鯊鯊共用同一份 Google 試算表。購物頁開啟時每 20 秒更新；勾選與修改會即時送出，請確認下方的儲存狀態。</p><div id="shopping-root"></div></div></details><details id="ticket-wallet" class="travel-panel"><summary class="panel-summary">旅途票券 <span id="wallet-count" class="ticket-badge">確認票券</span><small>車票、入場券與快通，一次確認準備好了沒</small></summary><div class="panel-body"><p class="ticket-intro">已購狀態依原行程預填；請逐項核對日期、人數與憑證。可貼上票券連結或記錄所在 App／訂單位置，再按「儲存」。這裡整理你的憑證，不會產生門票或 QR code。</p><p class="ticket-note" id="wallet-storage">票券只儲存在這個瀏覽器，不會同步到家人的手機。請另保留原始憑證。</p><div class="ticket-grid" id="ticket-grid"></div></div></details></main>
 <footer><div class="wrap">行程以原表為基礎，另含手動更新；票券與完成進度儲存於目前瀏覽器。</div></footer>
 <script>
 (() => {
@@ -1326,6 +1327,65 @@
 </script>
 <script>
 (() => {
+  const endpoint='https://script.google.com/macros/s/AKfycbxEoNmYN5rCBArJq9-DCYIvCfJnPFD-UNYzvRigD2aB-y3E2_RfoOqCuhgnDMHEPExc8Q/exec';
+  const names={me:'圓圓',companion:'鯊鯊'};
+  const normalize=value=>String(value??'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
+  const category=value=>({'Donki':'大創/Donki','大創':'大創/Donki','藥妝店':'藥妝/Donki'}[String(value).trim()]||String(value||'其他').trim());
+  async function request(payload){
+    const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),45000);
+    let response;
+    try{
+      response=await fetch(payload?endpoint:endpoint+'?action=list&_='+Date.now(),{method:payload?'POST':'GET',mode:'cors',credentials:'omit',cache:'no-store',signal:controller.signal,...(payload?{headers:{'Content-Type':'text/plain;charset=UTF-8'},body:JSON.stringify(payload)}:{})});
+      if(!response.ok)throw Error('連線失敗（HTTP '+response.status+'）');
+      const text=await response.text();let result;
+      try{result=JSON.parse(text);}catch(_){throw Error('服務未回傳清單資料；請確認 Web App 部署與存取權限。');}
+      if(result.success!==true){const error=Error(result.message||'服務未完成操作');error.definite=true;throw error;}
+      return result;
+    }catch(error){
+      if(error.name==='AbortError')error=Error('連線逾時，請稍後更新清單。');
+      error.uncertain=!!payload&&!error.definite;throw error;
+    }finally{clearTimeout(timer);}
+  }
+  function decode(row){
+    const owner=Object.keys(names).find(id=>normalize(names[id])===normalize(row.added_by));
+    if(row.id===undefined||row.id===null||String(row.id)===''||!owner||!String(row.item||'').trim())throw Error('試算表的 id、item 或 added_by 欄位不完整（採購人請用圓圓／鯊鯊）。');
+    const quantity=row.quantity===null||row.quantity===undefined||String(row.quantity).trim()===''?null:Number(row.quantity);
+    if(quantity!==null&&(!Number.isInteger(quantity)||quantity<1||quantity>9999))throw Error('「'+row.item+'」的數量需為正整數或留白。');
+    const purchased=String(row.purchased??'').trim().toLowerCase();
+    if(!['true','false','1','0',''].includes(purchased))throw Error('「'+row.item+'」的 purchased 欄位需為 TRUE／FALSE。');
+    return {id:String(row.id),owner,category:category(row.store),name:String(row.item).trim(),quantity,note:String(row.note||''),bought:['true','1'].includes(purchased)};
+  }
+  async function list(){const result=await request();if(!Array.isArray(result.items))throw Error('服務未回傳 items 清單。');const items=result.items.filter(row=>row&&Object.values(row).some(v=>v!==''&&v!==null)).map(decode);if(new Set(items.map(i=>i.id)).size!==items.length)throw Error('試算表有重複的品項編號，請先修正。');return items;}
+  const wire=(item)=>({store:item.category,item:item.name,quantity:item.quantity===null?'':item.quantity,note:item.note,added_by:names[item.owner],purchased:item.bought});
+  async function add(item){
+    const body=wire(item);const clientId='app-'+(globalThis.crypto?.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+    const result=await request({action:'add',client_id:clientId,...body});
+    if(result.id===undefined||result.id===null||String(result.id)===''){const error=Error('新增結果缺少品項編號，請更新清單確認。');error.uncertain=true;throw error;}
+    const created={...item,id:String(result.id)};
+    // The user's current API defaults blank quantities to 1 and purchased to false.
+    // A follow-up patch preserves the original blank quantity / restored purchase state.
+    const extra={};if(item.quantity===null)extra.quantity='';if(item.bought)extra.purchased=true;
+    if(Object.keys(extra).length){try{await request({action:'update',id:created.id,...extra});}catch(error){error.uncertain=true;error.message='品項已新增，但數量或已買狀態尚未確認。請更新清單核對。';throw error;}}
+    return created;
+  }
+  async function patch(original,changes){
+    const latest=(await list()).find(item=>item.id===original.id);
+    if(!latest)throw Error('此品項已被移除，請更新清單。');
+    const fields=Object.keys(changes);
+    if(fields.some(field=>latest[field]!==original[field]))throw Error('此品項剛被另一支手機修改，請更新清單後重新編輯。');
+    const updated={...latest,...changes};const before=wire(latest),after=wire(updated),payload={},expected={};
+    const mapping={category:'store',name:'item',quantity:'quantity',note:'note',owner:'added_by',bought:'purchased'};
+    fields.forEach(field=>{payload[mapping[field]]=after[mapping[field]];if(field!=='category')expected[mapping[field]]=before[mapping[field]];});
+    // Enhanced Code.gs checks expected while holding a lock; the original API ignores it.
+    await request({action:'update',id:original.id,...payload,expected});return updated;
+  }
+  async function remove(item){await request({action:'delete',id:item.id});}
+  globalThis.OsakaShoppingAPI={list,add,patch,remove,normalize,category,names};
+})();
+
+</script>
+<script>
+(() => {
   'use strict';
   const key='osaka-2026-shopping-v1';
   const baseCategories=['3Coins','大創/Donki','U/W','藥妝/Donki','伴手禮','其他'];
@@ -1353,11 +1413,36 @@
   } catch(_){writable=false;byId('shopping-storage').textContent='原有採購資料目前無法讀取或儲存，這次變更只保留在本頁。可先匯出清單備份。';}
   if(data.people.me==='我')data.people.me='圓圓';
   if(data.people.companion==='同行家人')data.people.companion='鯊鯊';
-  function save(){if(!writable)return false;try{localStorage.setItem(key,JSON.stringify(data));return true;}catch(_){byId('shopping-storage').textContent='目前無法儲存購物清單，這次變更只保留在本頁。請先匯出清單備份。';return false;}}
+  const api=globalThis.OsakaShoppingAPI;
+  const legacyData=JSON.parse(JSON.stringify(data));
+  const cloudKey='osaka-2026-shopping-cloud-v1';
+  data={version:1,people:{...api.names},items:legacyData.items,trash:[]};
+  try{const cached=JSON.parse(localStorage.getItem(cloudKey)||'null');if(validData(cached))data={...cached,people:{...api.names},trash:Array.isArray(cached.trash)?cached.trash.filter(validItem):[]};}catch(_){}
+  let connected=false,busy=false,lastRead=0;
+  function save(){try{localStorage.setItem(cloudKey,JSON.stringify(data));return true;}catch(_){byId('shopping-storage').textContent='共用清單已連接；此瀏覽器無法保留離線備份。';return false;}}
+  function updateWriteControls(){root.querySelectorAll('.cloud-write').forEach(control=>{control.disabled=busy||!connected;});form.querySelectorAll('input,select,textarea').forEach(control=>{control.disabled=busy;});refreshButton.disabled=busy;}
+  function stamp(){return new Intl.DateTimeFormat('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());}
+  async function refreshCloud(background=false){
+    if(busy)return false;if(background&&(!editor.hidden||document.hidden||byId('shopping-panel').hidden))return false;
+    busy=true;syncStatus.textContent='正在取得共用清單…';updateWriteControls();
+    try{const items=await api.list();data.items=items;connected=true;lastRead=Date.now();save();refreshCategories();render();syncStatus.textContent='已同步 · '+stamp();return true;}
+    catch(error){connected=false;syncStatus.textContent='尚未同步 · 顯示最後保留的清單';if(!background)announce(error.message+' 請按「更新清單」重試。',false);return false;}
+    finally{busy=false;updateWriteControls();}
+  }
+  async function commit(task,apply,message){
+    if(busy||!connected){announce('請先更新清單，連線成功後再修改。',false);return false;}
+    busy=true;syncStatus.textContent='儲存到共用清單中…';updateWriteControls();
+    try{const result=await task();apply(result);save();refreshCategories();render();syncStatus.textContent='已儲存 · '+stamp();announce(message);return true;}
+    catch(error){connected=false;syncStatus.textContent=error.uncertain?'寫入結果待確認':'尚未完成儲存';announce(error.message+(error.uncertain?' 請先更新清單確認結果；新增品項不要直接重複送出。':' 請更新清單後再操作。'),false);return false;}
+    finally{busy=false;updateWriteControls();}
+  }
   const root=byId('shopping-root');
   const toolbar=make('div','shopping-toolbar');
   const stats=make('p','shopping-stats');stats.id='shopping-stats';
   const add=button('＋ 新增品項',()=>openEditor(),'action map');add.id='shopping-add';toolbar.append(stats,add);
+  add.classList.toggle('cloud-write',true);
+  const refreshButton=button('更新清單',()=>refreshCloud(false));refreshButton.id='shopping-refresh';toolbar.append(refreshButton);
+  const syncStatus=make('p','shopping-sync','尚未同步 · 正在連接共用清單');syncStatus.id='shopping-sync';syncStatus.setAttribute('role','status');syncStatus.setAttribute('aria-live','polite');
   const people=make('div','shopping-people');people.setAttribute('role','group');people.setAttribute('aria-label','選擇採購人');
   let ownerFilter='all';
   const peopleButtons={};
@@ -1370,8 +1455,8 @@
   filters.append(field('商店／分類',categoryFilter),field('採購狀態',statusFilter),searchField);
   [categoryFilter,statusFilter].forEach(e=>e.addEventListener('change',render));search.addEventListener('input',render);
   const feedback=make('p','shopping-feedback');feedback.id='shopping-feedback';feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');
-  function announce(text,persisted=true){feedback.textContent=text+(persisted?'':'（尚未儲存，請匯出備份）');feedback.classList.toggle('error',!persisted);}
-  const undo=button('復原上次移除',()=>{const item=data.trash.pop();if(!item)return;if(!data.items.some(i=>i.id===item.id))data.items.push(item);const stored=save();refreshCategories();render();announce('已復原「'+item.name+'」。',stored);});undo.id='shopping-undo';undo.classList.toggle('shopping-undo',true);undo.hidden=true;
+  function announce(text,persisted=true){feedback.textContent=text+(persisted?'':'（尚未確認同步）');feedback.classList.toggle('error',!persisted);}
+  const undo=button('復原上次移除',async()=>{const item=data.trash[data.trash.length-1];if(!item)return;await commit(()=>api.add(item),created=>{data.trash.pop();data.items.push(created);},'已將「'+item.name+'」復原到共用清單。');});undo.id='shopping-undo';undo.classList.toggle('shopping-undo',true);undo.classList.toggle('cloud-write',true);undo.hidden=true;
   const editor=make('section','shopping-editor');editor.id='shopping-editor';editor.hidden=true;
   const editorTitle=make('h3','', '新增採購品項');editorTitle.id='shopping-editor-title';editor.setAttribute('aria-labelledby',editorTitle.id);
   const form=make('form');form.id='shopping-form';form.noValidate=true;
@@ -1383,58 +1468,60 @@
   const quantityInput=make('input');quantityInput.id='shopping-quantity';quantityInput.type='number';quantityInput.min='1';quantityInput.max='9999';quantityInput.step='1';quantityInput.placeholder='未決定可留空';quantityInput.inputMode='numeric';
   const noteInput=make('textarea');noteInput.id='shopping-note';noteInput.rows=3;noteInput.maxLength=1000;noteInput.placeholder='尺寸、顏色、品牌、代買對象…';
   formGrid.append(field('品項名稱（必填）',nameInput,true),field('誰要買',ownerInput),field('商店／分類（可自訂）',categoryInput),field('數量（選填）',quantityInput),field('備註（選填）',noteInput,true));
-  const formActions=make('div','shopping-actions');const submit=make('button','action map','加入清單');submit.type='submit';submit.id='shopping-submit';
-  const cancel=button('取消',()=>{editor.hidden=true;editing=null;add.focus();});
+  const formActions=make('div','shopping-actions');const submit=make('button','action map','加入清單');submit.type='submit';submit.id='shopping-submit';submit.classList.toggle('cloud-write',true);
+  const cancel=button('取消',()=>{if(busy)return;editor.hidden=true;editing=null;add.focus();});
   formActions.append(submit,cancel);const formError=make('p','shopping-feedback error');formError.id='shopping-form-error';formError.setAttribute('role','alert');
   form.append(formGrid,categoryOptions,formActions,formError);editor.append(editorTitle,form);
   const groups=make('div','shopping-groups');groups.id='shopping-groups';
-  const settings=make('details','shopping-settings');settings.id='shopping-settings';settings.append(make('summary','', '設定姓名、備份與匯入'));
-  const rename=make('form');rename.id='shopping-names-form';rename.noValidate=true;
-  const renameGrid=make('div','shopping-form-grid');const meName=make('input');meName.type='text';meName.id='shopping-me-name';meName.maxLength=30;meName.value=data.people.me;
-  const familyName=make('input');familyName.type='text';familyName.id='shopping-companion-name';familyName.maxLength=30;familyName.value=data.people.companion;
-  renameGrid.append(field('第一位採購人（圓圓）',meName),field('第二位採購人（鯊鯊）',familyName));
-  const renameActions=make('div','shopping-actions');const renameSave=make('button','action secondary','儲存稱呼');renameSave.type='submit';renameActions.append(renameSave);rename.append(renameGrid,renameActions);settings.append(rename);
+  const settings=make('details','shopping-settings');settings.id='shopping-settings';settings.append(make('summary','', '清單備份與匯入'));
+  settings.append(make('p','shopping-help','共用清單的採購人固定為圓圓與鯊鯊；兩支手機都會讀取同一份資料。'));
   const backupActions=make('div','shopping-actions');
   const exportButton=button('匯出清單備份',()=>{
     const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);const a=make('a');a.href=url;a.download='osaka-shopping-list.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);announce('已產生購物清單備份。');
   });exportButton.id='shopping-export';
   const importInput=make('input');importInput.type='file';importInput.accept='.json,application/json';importInput.id='shopping-import';importInput.hidden=true;
-  const importButton=button('匯入新增品項',()=>importInput.click());backupActions.append(exportButton,importButton,importInput);
-  settings.append(make('p','shopping-help','匯出檔案只包含購物清單，不含票券。匯入會合併新增品項；相同編號保留目前內容與已買狀態，不覆蓋。兩份清單的第一位採購人均為圓圓，第二位均為鯊鯊，請保持對應一致。'),backupActions);
-  root.append(toolbar,people,filters,feedback,undo,editor,groups,settings);
-  let editing=null;
+  const importButton=button('匯入新增品項',()=>importInput.click());importButton.classList.toggle('cloud-write',true);backupActions.append(exportButton,importButton,importInput);
+  const oldBackup=button('匯出原本手機清單',()=>{const blob=new Blob([JSON.stringify(legacyData,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=make('a');a.href=url;a.download='osaka-shopping-before-sync.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);announce('已產生同步前的手機清單備份。');});oldBackup.id='shopping-legacy-export';backupActions.append(oldBackup);
+  settings.append(make('p','shopping-help','匯出只包含購物清單，不含票券。匯入會把缺少的品項加入共用清單；相同編號或同一人的同名商品會略過，不覆蓋現有內容。另可匯出同步前的手機清單。'),backupActions);
+  root.append(toolbar,syncStatus,people,filters,feedback,undo,editor,groups,settings);
+  let editing=null,editingBase=null;
   function categories(){return [...new Set([...baseCategories,...data.items.map(item=>item.category)])];}
   function refreshCategories(){const selected=categoryFilter.value||'all';const cats=categories();categoryFilter.replaceChildren(option('all','全部分類'),...cats.map(c=>option(c,c)));categoryFilter.value=selected==='all'||cats.includes(selected)?selected:'all';categoryOptions.replaceChildren(...cats.map(c=>option(c,c)));}
   function refreshPeople(){const current=ownerInput.value||'me';ownerInput.replaceChildren(option('me',data.people.me),option('companion',data.people.companion));ownerInput.value=current;}
-  function openEditor(item){editing=item?item.id:null;formError.textContent='';editor.hidden=false;editorTitle.textContent=item?'編輯採購品項':'新增採購品項';submit.textContent=item?'儲存修改':'加入清單';nameInput.value=item?item.name:'';ownerInput.value=item?item.owner:ownerFilter==='companion'?'companion':'me';categoryInput.value=item?item.category:categoryFilter.value!=='all'?categoryFilter.value:'3Coins';quantityInput.value=item&&item.quantity!==null?String(item.quantity):'';noteInput.value=item?item.note:'';editor.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});nameInput.focus({preventScroll:true});}
-  form.addEventListener('submit',event=>{
+  function openEditor(item){if(busy||!connected)return;editingBase=item?{...item}:null;editing=item?item.id:null;formError.textContent='';editor.hidden=false;editorTitle.textContent=item?'編輯採購品項':'新增採購品項';submit.textContent=item?'儲存修改':'加入清單';nameInput.value=item?item.name:'';ownerInput.value=item?item.owner:ownerFilter==='companion'?'companion':'me';categoryInput.value=item?item.category:categoryFilter.value!=='all'?categoryFilter.value:'3Coins';quantityInput.value=item&&item.quantity!==null?String(item.quantity):'';noteInput.value=item?item.note:'';editor.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});nameInput.focus({preventScroll:true});}
+  form.addEventListener('submit',async event=>{
     event.preventDefault();const name=nameInput.value.trim(),category=categoryInput.value.trim(),raw=quantityInput.value.trim(),quantity=raw===''?null:Number(raw);
     if(!name||name.length>160){formError.textContent='請填寫品項名稱（160 字以內）。';nameInput.focus();return;}
     if(!category||category.length>80){formError.textContent='請填寫商店或分類（80 字以內）。';categoryInput.focus();return;}
     if(!['me','companion'].includes(ownerInput.value)){formError.textContent='請選擇採購人。';return;}
     if(quantity!==null&&(!Number.isInteger(quantity)||quantity<1||quantity>9999)){formError.textContent='數量請填 1–9999 的整數，或留空表示待定。';quantityInput.focus();return;}
-    const previous=editing?data.items.find(item=>item.id===editing):null;
+    const previous=editingBase;
     if(!previous&&data.items.length>=3000){formError.textContent='清單已達 3000 項，請先整理後再新增。';return;}
     const item={id:previous?previous.id:'item-'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)),owner:ownerInput.value,category,name,quantity,note:noteInput.value.trim().slice(0,1000),bought:previous?previous.bought:false};
-    if(previous)data.items[data.items.indexOf(previous)]=item;else data.items.push(item);
-    const stored=save();editor.hidden=true;editing=null;refreshCategories();
-    // Show the saved item even if a previous filter would hide it.
-    ownerFilter=item.owner;categoryFilter.value='all';statusFilter.value='all';search.value='';render();announce((previous?'已更新':'已新增')+'「'+name+'」。',stored);add.focus();
+    const changes={};if(previous)['owner','category','name','quantity','note'].forEach(field=>{if(item[field]!==previous[field])changes[field]=item[field];});
+    if(previous&&!Object.keys(changes).length){editor.hidden=true;editing=null;announce('沒有需要儲存的變更。');return;}
+    const ok=await commit(()=>previous?api.patch(previous,changes):api.add(item),saved=>{const index=data.items.findIndex(existing=>existing.id===saved.id);if(index>=0)data.items[index]=saved;else data.items.push(saved);},(previous?'已更新':'已新增')+'「'+name+'」到共用清單。');
+    if(!ok){formError.textContent='尚未確認儲存。請先更新清單、核對結果，再重新編輯或送出。';return;}
+    editor.hidden=true;editing=null;editingBase=null;ownerFilter=item.owner;categoryFilter.value='all';statusFilter.value='all';search.value='';render();add.focus();
   });
-  rename.addEventListener('submit',event=>{event.preventDefault();const a=meName.value.trim(),b=familyName.value.trim();if(!a||!b||a.length>30||b.length>30){announce('請填寫兩人的稱呼，各 30 字以內。');return;}data.people={me:a,companion:b};const stored=save();refreshPeople();render();announce('已更新兩人的稱呼。',stored);});
+
   importInput.addEventListener('change',async()=>{
     const file=importInput.files&&importInput.files[0];if(!file)return;
     try{
-      if(file.size>2*1024*1024)throw Error('請使用 2 MB 以下的採購備份檔。');
-      const incoming=JSON.parse(await file.text());if(!validData(incoming))throw Error('檔案不是此 App 匯出的有效購物清單。');
-      const ids=new Set([...data.items,...data.trash].map(item=>item.id));const added=incoming.items.filter(item=>!ids.has(item.id)).map(cleanItem);
-      if(data.items.length+added.length>3000)throw Error('合併後超過 3000 項，請先整理清單。');
-      data.items.push(...added);const stored=save();refreshCategories();render();announce('已匯入 '+added.length+' 個新項目；其餘相同編號保留目前內容。',stored);
-    }catch(error){feedback.classList.toggle('error',true);feedback.textContent='未匯入：'+(error instanceof SyntaxError?'檔案格式不正確。':error.message);}
+      if(file.size>2*1024*1024)throw Error('請使用 2 MB 以下的購物備份檔。');
+      const incoming=JSON.parse(await file.text());if(!validData(incoming))throw Error('檔案不是有效的購物清單備份。');
+      let count=0;
+      await commit(async()=>{
+        const latest=await api.list();data.items=latest;
+        for(const item of incoming.items){if(data.items.some(row=>row.id===item.id||(row.owner===item.owner&&api.normalize(row.name)===api.normalize(item.name))))continue;const created=await api.add(item);data.items.push(created);save();count++;}
+        return count;
+      },()=>{},'匯入完成，缺少的品項已加入共用清單。');
+      if(connected)announce('已加入 '+count+' 個新項目，其餘相同品項已略過。');
+    }catch(error){feedback.classList.toggle('error',true);feedback.textContent='未匯入：'+error.message;}
     importInput.value='';
   });
-  function removeItem(item){data.items=data.items.filter(i=>i.id!==item.id);data.trash.push(item);if(data.trash.length>50)data.trash.shift();const stored=save();if(editing===item.id){editor.hidden=true;editing=null;}refreshCategories();render();announce('已移除「'+item.name+'」，可按「復原上次移除」。',stored);undo.focus();}
+  async function removeItem(item){const ok=await commit(()=>api.remove(item),()=>{data.items=data.items.filter(i=>i.id!==item.id);data.trash.push(item);if(data.trash.length>50)data.trash.shift();if(editing===item.id){editor.hidden=true;editing=null;}},'已從共用清單移除「'+item.name+'」，可按復原。');if(ok)undo.focus();}
   function render(){
     const total=data.items.length,bought=data.items.filter(item=>item.bought).length;
     stats.textContent='待買 '+(total-bought)+' · 已買 '+bought+' · 共 '+total+' 項';byId('shopping-count').textContent=bought+' / '+total+' 項已買';byId('shopping-button').textContent='購物';
@@ -1453,17 +1540,22 @@
       items.forEach(item=>{
         const row=make('li','shopping-item');row.id='shopping-row-'+item.id;row.classList.toggle('is-bought',item.bought);
         const label=make('label','shopping-check');const check=make('input');check.type='checkbox';check.checked=item.bought;check.id='shopping-check-'+item.id;check.setAttribute('aria-label','已買：'+data.people[item.owner]+'的'+item.name);
-        check.addEventListener('change',()=>{item.bought=check.checked;const stored=save();render();announce('「'+item.name+'」'+(item.bought?'已買到了。':'恢復為待買。'),stored);const target=byId(check.id);if(target)target.focus({preventScroll:true});else statusFilter.focus({preventScroll:true});});
+        check.classList.toggle('cloud-write',true);
+        check.addEventListener('change',async()=>{const desired=check.checked;check.checked=item.bought;await commit(()=>api.patch(item,{bought:desired}),updated=>{const index=data.items.findIndex(i=>i.id===updated.id);if(index>=0)data.items[index]=updated;},'「'+item.name+'」'+(desired?'已標示為已買。':'已恢復待買。'));const target=byId(check.id);if(target)target.focus({preventScroll:true});});
         label.append(check,make('span','shopping-name',item.name));const meta=make('div','shopping-meta');meta.append(make('span','',data.people[item.owner]),make('span','',item.quantity===null?'數量待定':'數量：'+item.quantity),make('span','',item.bought?'✓ 已買':'待買'));
         row.append(label,meta);if(item.note)row.append(make('p','shopping-note',item.note));
-        const actions=make('div','shopping-actions');const edit=button('編輯',()=>openEditor(item));edit.setAttribute('aria-label','編輯 '+item.name);const remove=button('移除',()=>removeItem(item),'action remove');remove.setAttribute('aria-label','移除 '+item.name);actions.append(edit,remove);row.append(actions);list.append(row);
+        const actions=make('div','shopping-actions');const edit=button('編輯',()=>openEditor(item));edit.setAttribute('aria-label','編輯 '+item.name);edit.classList.toggle('cloud-write',true);const remove=button('移除',()=>removeItem(item),'action remove');remove.setAttribute('aria-label','移除 '+item.name);remove.classList.toggle('cloud-write',true);actions.append(edit,remove);row.append(actions);list.append(row);
       });section.append(list);groups.append(section);
     });
+    updateWriteControls();
   }
   function showShopping(){byId('shopping-panel').open=true;document.dispatchEvent(new CustomEvent('travel:reveal',{detail:{id:'shopping-panel'}}));}
-  byId('shopping-button').addEventListener('click',showShopping);
+  byId('shopping-button').addEventListener('click',()=>{showShopping();if(Date.now()-lastRead>5000)refreshCloud(false);});
   document.addEventListener('shopping:open',event=>{ownerFilter='all';categoryFilter.value=categories().includes(event.detail.category)?event.detail.category:'all';statusFilter.value='todo';search.value='';render();announce('來自「'+event.detail.place+'」的待買清單對照；實際商品依店內供應。');showShopping();});
   refreshCategories();refreshPeople();render();
+  refreshCloud(false);
+  setInterval(()=>refreshCloud(true),20000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!byId('shopping-panel').hidden)refreshCloud(true);});
 })();
 
 </script>

@@ -983,7 +983,7 @@
             <details class="event-more"><summary>展開詳細說明</summary><dl class="details"><div class="detail"><dt>區域</dt><dd>桃園</dd></div></dl></details><div class="actions"><a class="action map" href="https://www.google.com/maps/search/?api=1&amp;query=%E6%A1%83%E5%9C%92%E6%A9%9F%E5%A0%B4%20%E7%AC%AC%E4%BA%8C%E8%88%AA%E5%BB%88" target="_blank" rel="noopener noreferrer" data-map-kind="search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-5.4 7-12a7 7 0 1 0-14 0c0 6.6 7 12 7 12Z"/><circle cx="12" cy="9" r="2.5"/></svg>搜尋地點</a></div>
           </div>
         </article></div>
-    </section></section><details id="shopping-panel" class="travel-panel"><summary class="panel-summary">兩人的購物清單 <span id="shopping-count" class="ticket-badge">整理採購</span><small>按人、按商店查看，買到了就打勾；隨時可以新增</small></summary><div class="panel-body"><p class="shopping-help" id="shopping-storage">圓圓與鯊鯊共用同一份 Google 試算表。購物頁開啟時每 20 秒更新；勾選與修改會即時送出，請確認下方的儲存狀態。</p><div id="shopping-root"></div></div></details><details id="ticket-wallet" class="travel-panel"><summary class="panel-summary">旅途票券 <span id="wallet-count" class="ticket-badge">確認票券</span><small>車票、入場券與快通，一次確認準備好了沒</small></summary><div class="panel-body"><p class="ticket-intro">已購狀態依原行程預填；請逐項核對日期、人數與憑證。可貼上票券連結或記錄所在 App／訂單位置，再按「儲存」。這裡整理你的憑證，不會產生門票或 QR code。</p><p class="ticket-note" id="wallet-storage">票券只儲存在這個瀏覽器，不會同步到家人的手機。請另保留原始憑證。</p><div class="ticket-grid" id="ticket-grid"></div></div></details></main>
+    </section></section><details id="shopping-panel" class="travel-panel"><summary class="panel-summary">兩人的購物清單 <span id="shopping-count" class="ticket-badge">整理採購</span><small>按人、按商店查看，買到了就打勾；隨時可以新增</small></summary><div class="panel-body"><p class="shopping-help" id="shopping-storage">先顯示本機清單，勾選與修改立即儲存在這支手機，再背景同步給圓圓與鯊鯊。待同步的變更會保留；離開網頁前，請確認顯示「已同步」。</p><div id="shopping-root"></div></div></details><details id="ticket-wallet" class="travel-panel"><summary class="panel-summary">旅途票券 <span id="wallet-count" class="ticket-badge">確認票券</span><small>車票、入場券與快通，一次確認準備好了沒</small></summary><div class="panel-body"><p class="ticket-intro">已購狀態依原行程預填；請逐項核對日期、人數與憑證。可貼上票券連結或記錄所在 App／訂單位置，再按「儲存」。這裡整理你的憑證，不會產生門票或 QR code。</p><p class="ticket-note" id="wallet-storage">票券只儲存在這個瀏覽器，不會同步到家人的手機。請另保留原始憑證。</p><div class="ticket-grid" id="ticket-grid"></div></div></details></main>
 <footer><div class="wrap">行程以原表為基礎，另含手動更新；票券與完成進度儲存於目前瀏覽器。</div></footer>
 <script>
 (() => {
@@ -1416,26 +1416,76 @@
   const api=globalThis.OsakaShoppingAPI;
   const legacyData=JSON.parse(JSON.stringify(data));
   const cloudKey='osaka-2026-shopping-cloud-v1';
-  data={version:1,people:{...api.names},items:legacyData.items,trash:[]};
-  try{const cached=JSON.parse(localStorage.getItem(cloudKey)||'null');if(validData(cached))data={...cached,people:{...api.names},trash:Array.isArray(cached.trash)?cached.trash.filter(validItem):[]};}catch(_){}
-  data.items=data.items.map(item=>({...item,category:({'大創/Donki':'Donki','藥妝/Donki':'藥妝店'}[item.category]||item.category)}));
-  let connected=false,busy=false,lastRead=0;
-  function save(){try{localStorage.setItem(cloudKey,JSON.stringify(data));return true;}catch(_){byId('shopping-storage').textContent='共用清單已連接；此瀏覽器無法保留離線備份。';return false;}}
-  function updateWriteControls(){root.querySelectorAll('.cloud-write').forEach(control=>{control.disabled=busy||!connected;});form.querySelectorAll('input,select,textarea').forEach(control=>{control.disabled=busy;});refreshButton.disabled=busy;}
-  function stamp(){return new Intl.DateTimeFormat('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());}
-  async function refreshCloud(background=false){
-    if(busy)return false;if(background&&(!editor.hidden||document.hidden||byId('shopping-panel').hidden))return false;
-    busy=true;syncStatus.textContent='正在取得共用清單…';updateWriteControls();
-    try{const items=await api.list();data.items=items;connected=true;lastRead=Date.now();save();refreshCategories();render();syncStatus.textContent='已同步 · '+stamp();return true;}
-    catch(error){connected=false;syncStatus.textContent='尚未同步 · 顯示最後保留的清單';if(!background)announce(error.message+' 請按「更新清單」重試。',false);return false;}
-    finally{busy=false;updateWriteControls();}
+  let hasCache=false,storageOK=true,busy=false,lastRead=0,syncError='';
+  data={version:1,people:{...api.names},items:[],trash:[],server:[],pending:[],aliases:{}};
+  try{const cached=JSON.parse(localStorage.getItem(cloudKey)||'null');if(validData(cached)){data={...data,...cached,people:{...api.names}};data.server=Array.isArray(cached.server)?cached.server:cached.items;data.pending=Array.isArray(cached.pending)?cached.pending:[];data.aliases=cached.aliases||{};hasCache=true;data.pending.forEach(op=>{if(op.state==='sending')op.state=op.type==='add'?'uncertain':'queued';});}}catch(_){storageOK=false;}
+  const resolveId=id=>data.aliases[id]||id;
+  function project(){
+    const items=data.server.map(item=>({...item}));
+    data.pending.forEach(op=>{const id=resolveId(op.item.id),index=items.findIndex(i=>i.id===id);if(op.type==='add'){if(index<0)items.push({...op.item,id});}else if(op.type==='delete'){if(index>=0)items.splice(index,1);}else if(index>=0)items[index]={...items[index],...op.changes};});
+    data.items=items;
   }
-  async function commit(task,apply,message){
-    if(busy||!connected){announce('請先更新清單，連線成功後再修改。',false);return false;}
-    busy=true;syncStatus.textContent='儲存到共用清單中…';updateWriteControls();
-    try{const result=await task();apply(result);save();refreshCategories();render();syncStatus.textContent='已儲存 · '+stamp();announce(message);return true;}
-    catch(error){connected=false;syncStatus.textContent=error.uncertain?'寫入結果待確認':'尚未完成儲存';announce(error.message+(error.uncertain?' 請先更新清單確認結果；新增品項不要直接重複送出。':' 請更新清單後再操作。'),false);return false;}
-    finally{busy=false;updateWriteControls();}
+  project();
+  function save(){try{localStorage.setItem(cloudKey,JSON.stringify(data));storageOK=true;return true;}catch(_){storageOK=false;syncError='本機儲存失敗，請先匯出備份；這次操作未加入同步。';return false;}}
+  function updateWriteControls(){root.querySelectorAll('.cloud-write').forEach(control=>{control.disabled=!hasCache||!storageOK;});refreshButton.disabled=busy;}
+  function stamp(){return new Intl.DateTimeFormat('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());}
+  function status(){
+    const count=data.pending.length;
+    syncStatus.textContent=syncError||(count?('已存本機 · '+count+' 筆'+(busy?'背景同步中…':'待同步')):(busy?'顯示本機清單 · 背景更新中…':hasCache?'已同步 · '+stamp():'首次載入共用清單中…'));
+    updateWriteControls();
+    recovery.hidden=!data.pending.length||!['uncertain','conflict'].includes(data.pending[0].state);
+  }
+  function repaint(){project();refreshCategories();render();status();}
+  function enqueue(type,item,changes={},trashAction){
+    if(!hasCache||!storageOK){announce('請先完成首次載入，並確認本機可以儲存。',false);return false;}
+    const before=JSON.stringify(data);
+    data.pending.push({type,item:{...item,id:resolveId(item.id)},changes:{...changes},state:'queued'});
+    if(trashAction)trashAction();project();
+    if(!save()){data=JSON.parse(before);repaint();announce(syncError,false);return false;}
+    syncError='';repaint();announce('已存到本機，將在背景同步。');void refreshCloud(false);return true;
+  }
+  function mapCreated(op,created){
+    const old=op.item.id;data.aliases[old]=created.id;
+    data.pending.forEach(next=>{if(next.item.id===old)next.item.id=created.id;});
+    data.trash.forEach(item=>{if(item.id===old)item.id=created.id;});
+    if(editingBase&&editingBase.id===old){editingBase.id=created.id;editing=created.id;}
+    data.server=data.server.filter(item=>item.id!==created.id);data.server.push(created);
+  }
+  async function refreshCloud(background=false){
+    if(busy)return;
+    if(background&&!data.pending.length&&(!editor.hidden||document.hidden||byId('shopping-panel').hidden))return;
+    busy=true;syncError='';status();
+    try{
+      // Reconcile with the server before replay; pending local edits are always overlaid.
+      data.server=await api.list();hasCache=true;lastRead=Date.now();save();repaint();
+      while(data.pending.length){
+        const op=data.pending[0];
+        if(['uncertain','conflict'].includes(op.state)){showRecovery(op);break;}
+        op.item.id=resolveId(op.item.id);
+        const latest=data.server.find(item=>item.id===op.item.id);
+        if(op.type==='patch'){
+          if(!latest){op.state='conflict';save();showRecovery(op);break;}
+          const fields=Object.keys(op.changes);
+          if(fields.every(key=>latest[key]===op.changes[key])){data.pending.shift();save();repaint();continue;}
+          if(fields.some(key=>latest[key]!==op.item[key]&&latest[key]!==op.changes[key])){op.state='conflict';save();showRecovery(op);break;}
+        }
+        if(op.type==='delete'&&!latest){data.pending.shift();save();repaint();continue;}
+        op.state='sending';if(!save())throw Error('無法保存同步進度，已暫停送出。');
+        try{
+          if(op.type==='add'){const created=await api.add(op.item);mapCreated(op,created);}
+          else if(op.type==='patch'){const updated=await api.patch(latest,op.changes);data.server=data.server.map(item=>item.id===updated.id?updated:item);}
+          else {await api.remove(latest);data.server=data.server.filter(item=>item.id!==op.item.id);}
+          data.pending.shift();project();if(!save())throw Error('雲端已更新，但本機無法保存結果。請保留本頁並匯出備份。');repaint();
+        }catch(error){op.state=op.type==='add'&&error.uncertain?'uncertain':'queued';save();throw error;}
+      }
+    }catch(error){syncError='同步尚未完成 · '+error.message+' 本機變更會保留。';}
+    finally{busy=false;status();}
+  }
+  function showRecovery(op){
+    recoveryChoices.replaceChildren(option('','請選擇雲端已新增的品項'),...data.server.map(item=>option(item.id,api.names[item.owner]+' · '+item.category+' · '+item.name)));
+    recoveryChoices.hidden=op.type!=='add';linkRecovery.hidden=op.type!=='add';retryRecovery.hidden=op.type!=='add';
+    syncError=op.type==='add'?'新增結果待確認 · 請先核對下方雲端清單，避免重複新增。':'同一品項已有其他變更 · 本機修改已保留，請核對後採用雲端版本。';
+    recoveryText.textContent='待確認：'+api.names[op.item.owner]+'的「'+op.item.name+'」。'+(op.type==='add'?'若已出現在雲端，選取後按「連結已新增品項」；確認不存在時再重新送出。':'本機修改尚未送出。採用雲端會取消此品項尚未同步的修改；需要保留時可先匯出清單備份。');
   }
   const root=byId('shopping-root');
   const toolbar=make('div','shopping-toolbar');
@@ -1457,7 +1507,7 @@
   [categoryFilter,statusFilter].forEach(e=>e.addEventListener('change',render));search.addEventListener('input',render);
   const feedback=make('p','shopping-feedback');feedback.id='shopping-feedback';feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');
   function announce(text,persisted=true){feedback.textContent=text+(persisted?'':'（尚未確認同步）');feedback.classList.toggle('error',!persisted);}
-  const undo=button('復原上次移除',async()=>{const item=data.trash[data.trash.length-1];if(!item)return;await commit(()=>api.add(item),created=>{data.trash.pop();data.items.push(created);},'已將「'+item.name+'」復原到共用清單。');});undo.id='shopping-undo';undo.classList.toggle('shopping-undo',true);undo.classList.toggle('cloud-write',true);undo.hidden=true;
+  const undo=button('復原上次移除',()=>{const item=data.trash[data.trash.length-1];if(!item)return;enqueue('add',{...item,id:'local-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)},{},()=>data.trash.pop());});undo.id='shopping-undo';undo.classList.toggle('shopping-undo',true);undo.classList.toggle('cloud-write',true);undo.hidden=true;
   const editor=make('section','shopping-editor');editor.id='shopping-editor';editor.hidden=true;
   const editorTitle=make('h3','', '新增採購品項');editorTitle.id='shopping-editor-title';editor.setAttribute('aria-labelledby',editorTitle.id);
   const form=make('form');form.id='shopping-form';form.noValidate=true;
@@ -1472,7 +1522,7 @@
   const noteInput=make('textarea');noteInput.id='shopping-note';noteInput.rows=3;noteInput.maxLength=1000;noteInput.placeholder='尺寸、顏色、品牌、代買對象…';
   formGrid.append(field('品項名稱（必填）',nameInput,true),field('誰要買',ownerInput),field('商店／分類',categoryInput),categoryNewField,field('數量（選填）',quantityInput),field('備註（選填）',noteInput,true));
   const formActions=make('div','shopping-actions');const submit=make('button','action map','加入清單');submit.type='submit';submit.id='shopping-submit';submit.classList.toggle('cloud-write',true);
-  const cancel=button('取消',()=>{if(busy)return;editor.hidden=true;editing=null;add.focus();});
+  const cancel=button('取消',()=>{editor.hidden=true;editing=null;add.focus();});
   formActions.append(submit,cancel);const formError=make('p','shopping-feedback error');formError.id='shopping-form-error';formError.setAttribute('role','alert');
   form.append(formGrid,formActions,formError);editor.append(editorTitle,form);
   const groups=make('div','shopping-groups');groups.id='shopping-groups';
@@ -1487,12 +1537,18 @@
   const importButton=button('匯入新增品項',()=>importInput.click());importButton.classList.toggle('cloud-write',true);backupActions.append(exportButton,importButton,importInput);
   const oldBackup=button('匯出原本手機清單',()=>{const blob=new Blob([JSON.stringify(legacyData,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=make('a');a.href=url;a.download='osaka-shopping-before-sync.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);announce('已產生同步前的手機清單備份。');});oldBackup.id='shopping-legacy-export';backupActions.append(oldBackup);
   settings.append(make('p','shopping-help','匯出只包含購物清單，不含票券。匯入會把缺少的品項加入共用清單；相同編號或同一人的同名商品會略過，不覆蓋現有內容。另可匯出同步前的手機清單。'),backupActions);
-  root.append(toolbar,syncStatus,people,filters,feedback,undo,editor,groups,settings);
+  const recovery=make('section','shopping-editor');recovery.id='shopping-recovery';recovery.hidden=true;
+  const recoveryText=make('p');const recoveryChoices=make('select');recoveryChoices.setAttribute('aria-label','核對雲端新增品項');
+  const linkRecovery=button('連結已新增品項',()=>{if(busy)return;const op=data.pending[0],item=data.server.find(i=>i.id===recoveryChoices.value);if(!op||!item)return;mapCreated(op,item);data.pending.shift();save();syncError='';repaint();void refreshCloud(false);});
+  const retryRecovery=button('確認未新增，重新送出',()=>{if(busy||!data.pending[0])return;data.pending[0].state='queued';save();void refreshCloud(false);});
+  const discardRecovery=button('採用雲端版本',()=>{if(busy||!data.pending[0])return;const id=data.pending[0].item.id;data.pending=data.pending.filter(op=>op.item.id!==id);save();syncError='';repaint();void refreshCloud(false);});
+  recovery.append(recoveryText,recoveryChoices,linkRecovery,retryRecovery,discardRecovery);
+  root.append(toolbar,syncStatus,recovery,people,filters,feedback,undo,editor,groups,settings);
   let editing=null,editingBase=null;
   function categories(){return [...new Set([...baseCategories,...data.items.map(item=>item.category)])];}
   function refreshCategories(){const selected=categoryFilter.value||'all';const cats=categories();categoryFilter.replaceChildren(option('all','全部分類'),...cats.map(c=>option(c,c)));categoryFilter.value=selected==='all'||cats.includes(selected)?selected:'all';const current=categoryInput.value;categoryInput.replaceChildren(...cats.map(c=>option(c,c)),option('__new_store__','＋ 新增商店／分類'));categoryInput.value=cats.includes(current)||current==='__new_store__'?current:cats[0];}
   function refreshPeople(){const current=ownerInput.value||'me';ownerInput.replaceChildren(option('me',data.people.me),option('companion',data.people.companion));ownerInput.value=current;}
-  function openEditor(item){if(busy||!connected)return;editingBase=item?{...item}:null;editing=item?item.id:null;formError.textContent='';editor.hidden=false;editorTitle.textContent=item?'編輯採購品項':'新增採購品項';submit.textContent=item?'儲存修改':'加入清單';nameInput.value=item?item.name:'';ownerInput.value=item?item.owner:ownerFilter==='companion'?'companion':'me';categoryInput.value=item?item.category:categoryFilter.value!=='all'?categoryFilter.value:'3Coins';categoryNew.value='';categoryNewField.hidden=true;categoryNew.required=false;quantityInput.value=item&&item.quantity!==null?String(item.quantity):'';noteInput.value=item?item.note:'';editor.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});nameInput.focus({preventScroll:true});}
+  function openEditor(item){if(!hasCache||!storageOK)return;editingBase=item?{...item}:null;editing=item?item.id:null;formError.textContent='';editor.hidden=false;editorTitle.textContent=item?'編輯採購品項':'新增採購品項';submit.textContent=item?'儲存修改':'加入清單';nameInput.value=item?item.name:'';ownerInput.value=item?item.owner:ownerFilter==='companion'?'companion':'me';categoryInput.value=item?item.category:categoryFilter.value!=='all'?categoryFilter.value:'3Coins';categoryNew.value='';categoryNewField.hidden=true;categoryNew.required=false;quantityInput.value=item&&item.quantity!==null?String(item.quantity):'';noteInput.value=item?item.note:'';editor.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});nameInput.focus({preventScroll:true});}
   form.addEventListener('submit',async event=>{
     event.preventDefault();const name=nameInput.value.trim(),category=(categoryInput.value==='__new_store__'?categoryNew.value:categoryInput.value).trim(),raw=quantityInput.value.trim(),quantity=raw===''?null:Number(raw);
     if(!name||name.length>160){formError.textContent='請填寫品項名稱（160 字以內）。';nameInput.focus();return;}
@@ -1504,8 +1560,8 @@
     const item={id:previous?previous.id:'item-'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)),owner:ownerInput.value,category,name,quantity,note:noteInput.value.trim().slice(0,1000),bought:previous?previous.bought:false};
     const changes={};if(previous)['owner','category','name','quantity','note'].forEach(field=>{if(item[field]!==previous[field])changes[field]=item[field];});
     if(previous&&!Object.keys(changes).length){editor.hidden=true;editing=null;announce('沒有需要儲存的變更。');return;}
-    const ok=await commit(()=>previous?api.patch(previous,changes):api.add(item),saved=>{const index=data.items.findIndex(existing=>existing.id===saved.id);if(index>=0)data.items[index]=saved;else data.items.push(saved);},(previous?'已更新':'已新增')+'「'+name+'」到共用清單。');
-    if(!ok){formError.textContent='尚未確認儲存。請先更新清單、核對結果，再重新編輯或送出。';return;}
+    const ok=enqueue(previous?'patch':'add',previous||item,changes);
+    if(!ok){formError.textContent='無法儲存到本機，請保留內容並匯出備份。';return;}
     editor.hidden=true;editing=null;editingBase=null;ownerFilter=item.owner;categoryFilter.value='all';statusFilter.value='all';search.value='';render();add.focus();
   });
 
@@ -1515,16 +1571,16 @@
       if(file.size>2*1024*1024)throw Error('請使用 2 MB 以下的購物備份檔。');
       const incoming=JSON.parse(await file.text());if(!validData(incoming))throw Error('檔案不是有效的購物清單備份。');
       let count=0;
-      await commit(async()=>{
-        const latest=await api.list();data.items=latest;
-        for(const item of incoming.items){if(data.items.some(row=>row.id===item.id||(row.owner===item.owner&&api.normalize(row.name)===api.normalize(item.name))))continue;const created=await api.add(item);data.items.push(created);save();count++;}
-        return count;
-      },()=>{},'匯入完成，缺少的品項已加入共用清單。');
-      if(connected)announce('已加入 '+count+' 個新項目，其餘相同品項已略過。');
+      for(const item of incoming.items){
+        if(data.items.some(row=>row.id===item.id||(row.owner===item.owner&&api.normalize(row.name)===api.normalize(item.name))))continue;
+        if(!enqueue('add',{...item,id:'local-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)}))break;count++;
+      }
+      announce('已在本機加入 '+count+' 個新項目，等待背景同步。');
+
     }catch(error){feedback.classList.toggle('error',true);feedback.textContent='未匯入：'+error.message;}
     importInput.value='';
   });
-  async function removeItem(item){const ok=await commit(()=>api.remove(item),()=>{data.items=data.items.filter(i=>i.id!==item.id);data.trash.push(item);if(data.trash.length>50)data.trash.shift();if(editing===item.id){editor.hidden=true;editing=null;}},'已從共用清單移除「'+item.name+'」，可按復原。');if(ok)undo.focus();}
+  function removeItem(item){const ok=enqueue('delete',item,{},()=>{data.trash.push(item);if(data.trash.length>50)data.trash.shift();});if(ok){if(editing===item.id){editor.hidden=true;editing=null;}undo.focus();}}
   function render(){
     const total=data.items.length,bought=data.items.filter(item=>item.bought).length;
     stats.textContent='待買 '+(total-bought)+' · 已買 '+bought+' · 共 '+total+' 項';byId('shopping-count').textContent=bought+' / '+total+' 項已買';byId('shopping-button').textContent='購物';
@@ -1544,9 +1600,9 @@
         const row=make('li','shopping-item');row.id='shopping-row-'+item.id;row.classList.toggle('is-bought',item.bought);
         const label=make('label','shopping-check');const check=make('input');check.type='checkbox';check.checked=item.bought;check.id='shopping-check-'+item.id;check.setAttribute('aria-label','已買：'+data.people[item.owner]+'的'+item.name);
         check.classList.toggle('cloud-write',true);
-        check.addEventListener('change',async()=>{const desired=check.checked;check.checked=item.bought;await commit(()=>api.patch(item,{bought:desired}),updated=>{const index=data.items.findIndex(i=>i.id===updated.id);if(index>=0)data.items[index]=updated;},'「'+item.name+'」'+(desired?'已標示為已買。':'已恢復待買。'));const target=byId(check.id);if(target)target.focus({preventScroll:true});});
+        check.addEventListener('change',()=>{enqueue('patch',item,{bought:check.checked});const target=byId(check.id);if(target)target.focus({preventScroll:true});});
         label.append(check,make('span','shopping-name',item.name));const meta=make('div','shopping-meta');meta.append(make('span','',data.people[item.owner]),make('span','',item.quantity===null?'數量待定':'數量：'+item.quantity),make('span','',item.bought?'✓ 已買':'待買'));
-        row.append(label,meta);if(item.note)row.append(make('p','shopping-note',item.note));
+        if(data.pending.some(op=>resolveId(op.item.id)===item.id))meta.append(make('span','','待同步'));row.append(label,meta);if(item.note)row.append(make('p','shopping-note',item.note));
         const actions=make('div','shopping-actions');const edit=button('編輯',()=>openEditor(item));edit.setAttribute('aria-label','編輯 '+item.name);edit.classList.toggle('cloud-write',true);const remove=button('移除',()=>removeItem(item),'action remove');remove.setAttribute('aria-label','移除 '+item.name);remove.classList.toggle('cloud-write',true);actions.append(edit,remove);row.append(actions);list.append(row);
       });section.append(list);groups.append(section);
     });
@@ -1558,7 +1614,7 @@
   refreshCategories();refreshPeople();render();
   refreshCloud(false);
   setInterval(()=>refreshCloud(true),20000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!byId('shopping-panel').hidden)refreshCloud(true);});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCloud(true);});
 })();
 
 </script>

@@ -425,6 +425,30 @@
 .shopping-sync { font-size:1.125rem; line-height:1.8; padding:12px 15px; background:#eaf3ed; color:#315b4c; border-radius:10px; margin:0 0 17px; } .cloud-write:disabled { opacity:.55; cursor:wait; }
 .shopping-delete-confirm { margin-top:12px; padding:16px; border:1px solid #d8a29b; border-radius:12px; background:#fff4f1; font-size:18px; line-height:1.7; } .shopping-delete-confirm p { margin:0 0 12px; } .shopping-delete-confirm button { margin:0 10px 4px 0; min-height:48px; }
 #shopping-storage:empty { display:none; }
+
+  /* Stable store identities: large labels, distinct colors, and repeated names. */
+  .store-green { --store-ink:#286044; --store-tint:#f0f8f2; --store-line:#bdd7c4; }
+  .store-amber { --store-ink:#85500c; --store-tint:#fff8e8; --store-line:#e4cb96; }
+  .store-blue { --store-ink:#285887; --store-tint:#f0f6fc; --store-line:#b9cfe5; }
+  .store-purple { --store-ink:#6d4184; --store-tint:#f8f2fb; --store-line:#d5bddf; }
+  .store-slate { --store-ink:#485866; --store-tint:#f3f5f7; --store-line:#c8d0d7; }
+  .store-rose { --store-ink:#914558; --store-tint:#fff2f5; --store-line:#e5bdc7; }
+  .store-teal { --store-ink:#24656b; --store-tint:#eff8f8; --store-line:#b8d9db; }
+  .shopping-groups { gap:28px; }
+  .shopping-group { border:1px solid var(--store-line); border-radius:16px; }
+  .shopping-group-heading { background:var(--store-ink); color:white; padding:18px; align-items:center; gap:12px; }
+  .store-title { display:flex; align-items:center; gap:12px; min-width:0; }
+  .shopping-group-heading h3 { color:white; font-size:1.375rem; line-height:1.4; overflow-wrap:anywhere; }
+  .shopping-group-heading .store-mark { display:flex; align-items:center; justify-content:center; flex-shrink:0; min-width:48px; height:48px; padding:0 7px; border:1px solid #ffffff80; border-radius:12px; background:#ffffff18; color:white; font-size:18px; font-weight:800; }
+  .shopping-group-heading .store-count { color:white; font-size:16px; font-weight:650; }
+  .shopping-item { background:var(--store-tint); border-top-color:var(--store-line); border-left:6px solid var(--store-ink); }
+  .shopping-item.is-bought { background:var(--store-tint); }
+  .shopping-meta { align-items:center; }
+  .shopping-meta .store-label { background:white; border:1px solid var(--store-line); border-radius:7px; padding:1px 8px; color:var(--store-ink); font-size:16px; font-weight:750; }
+  .shopping-item .action.secondary { background:white; color:var(--store-ink); border-color:var(--store-line); }
+  .shopping-check input { accent-color:var(--store-ink); }
+  @media (max-width:540px) { .shopping-group-heading { padding:15px; } .shopping-group-heading .store-count { margin-left:60px; } }
+
 </style>
 </head>
 <body>
@@ -1547,6 +1571,13 @@
   recovery.append(recoveryText,recoveryChoices,linkRecovery,retryRecovery,discardRecovery);
   root.append(toolbar,syncStatus,recovery,people,filters,feedback,editor,groups,settings);
   let editing=null,editingBase=null;
+  function storeIdentity(name){
+    const known={'3Coins':['green','3C'],'Donki':['amber','DK'],'U/W':['blue','UW'],'藥妝店':['purple','藥'],'其他':['slate','其他']};
+    if(known[name])return known[name];
+    const tones=['green','amber','blue','purple','slate','rose','teal'];
+    const hash=Array.from(name).reduce((total,char)=>(total*31+char.codePointAt(0))>>>0,0);
+    return [tones[hash%tones.length],Array.from(name).slice(0,2).join('')];
+  }
   function categories(){return [...new Set([...baseCategories,...data.items.map(item=>item.category)])];}
   function refreshCategories(){const selected=categoryFilter.value||'all';const cats=categories();categoryFilter.replaceChildren(option('all','全部分類'),...cats.map(c=>option(c,c)));categoryFilter.value=selected==='all'||cats.includes(selected)?selected:'all';const current=categoryInput.value;categoryInput.replaceChildren(...cats.map(c=>option(c,c)),option('__new_store__','＋ 新增商店／分類'));categoryInput.value=cats.includes(current)||current==='__new_store__'?current:cats[0];}
   function refreshPeople(){const current=ownerInput.value||'me';ownerInput.replaceChildren(option('me',data.people.me),option('companion',data.people.companion));ownerInput.value=current;}
@@ -1602,7 +1633,11 @@
     const showEmptyGifts=categoryFilter.value==='all'&&statusFilter.value==='all'&&!query&&visible.length>0;
     categories().filter(c=>categoryFilter.value==='all'||c===categoryFilter.value).forEach(category=>{
       const items=visible.filter(item=>item.category===category);if(!items.length&&!(showEmptyGifts&&category==='伴手禮'))return;
-      const section=make('section','shopping-group');const heading=make('div','shopping-group-heading');heading.append(make('h3','',category),make('span','',items.filter(i=>i.bought).length+' / '+items.length+' 項已買'));section.append(heading);
+      const identity=storeIdentity(category);
+      const section=make('section','shopping-group store-'+identity[0]);section.setAttribute('aria-label',category+'購物清單');
+      const heading=make('div','shopping-group-heading');
+      const title=make('div','store-title');const mark=make('span','store-mark',identity[1]);mark.setAttribute('aria-hidden','true');title.append(mark,make('h3','',category));
+      heading.append(title,make('span','store-count',items.filter(i=>i.bought).length+' / '+items.length+' 項已買'));section.append(heading);
       if(!items.length){section.append(make('p','shopping-empty','尚未新增伴手禮，想到要買什麼時再加進來。'));groups.append(section);return;}
       const list=make('ul','shopping-list');
       items.forEach(item=>{
@@ -1610,7 +1645,7 @@
         const label=make('label','shopping-check');const check=make('input');check.type='checkbox';check.checked=item.bought;check.id='shopping-check-'+item.id;check.setAttribute('aria-label','已買：'+data.people[item.owner]+'的'+item.name);
         check.classList.toggle('cloud-write',true);
         check.addEventListener('change',()=>{enqueue('patch',item,{bought:check.checked});const target=byId(check.id);if(target)target.focus({preventScroll:true});});
-        label.append(check,make('span','shopping-name',item.name));const meta=make('div','shopping-meta');meta.append(make('span','',data.people[item.owner]),make('span','',item.quantity===null?'數量待定':'數量：'+item.quantity),make('span','',item.bought?'✓ 已買':'待買'));
+        label.append(check,make('span','shopping-name',item.name));const meta=make('div','shopping-meta');meta.append(make('span','store-label',category),make('span','',data.people[item.owner]),make('span','',item.quantity===null?'數量待定':'數量：'+item.quantity),make('span','',item.bought?'✓ 已買':'待買'));
         if(data.pending.some(op=>resolveId(op.item.id)===item.id))meta.append(make('span','','待同步'));row.append(label,meta);if(item.note)row.append(make('p','shopping-note',item.note));
         const actions=make('div','shopping-actions');const edit=button('編輯',()=>openEditor(item));edit.setAttribute('aria-label','編輯 '+item.name);edit.classList.toggle('cloud-write',true);const remove=button('移除',()=>removeItem(item),'action remove');remove.setAttribute('aria-label','移除 '+item.name);remove.classList.toggle('cloud-write',true);actions.append(edit,remove);row.append(actions);
         if(pendingRemove===item.id){
